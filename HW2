@@ -1,0 +1,117 @@
+#include <iostream>
+#include <stdio.h>
+#include <stdlib.h>
+#include <cmath>
+#include "cuda_runtime.h"
+#include <cstdlib>
+#include <time.h>
+
+using namespace std;
+
+#define blocks 32;
+#define threads 1024;
+
+// Parallel version of the Sieve of Eratosthenes
+// O(sqrt(n)loglog(n))
+__global__ void parSOE(int * a, int n) {
+	int index = blockIdx.x * blockDim.x + threadIdx.x;
+
+	if (threadIdx.x == 0 && threadIdx.y == 0) {
+		a[0] = 1;
+		a[1] = 1;
+	}
+
+	if (index * index <= n && a[index] != 1 && index > 1) {
+		for (int i = index * index; i < n+1; i += index) {
+			a[i] = 1;
+		}
+	}
+}
+
+
+// Sequential version of the Sieve of Eratosthenes
+// O(nloglog(n))
+void seqSOE(int * a, int n) {
+	a[0] = 1;
+	for (int i = 2; i * i <= n; i++) {
+		if (a[i] != 1) {
+			for (int j = i * 2; j <= n; j += i) {
+				a[j] = 1;
+			}
+		}
+	}
+}
+// Creates the prime testing array from 0 to N
+int * createArray(int n) {
+	int * a = (int*)malloc((n+1) * sizeof(int));
+	for (int i = 0; i <= n; i++) {
+		a[i] = i;
+	}
+	return a;
+}
+
+// Prints the prime numbers from the input array
+// Checks to see if value is 1, which indicates not prime
+void printPrimes(int * a, int n) {
+	
+	for (int i = 0; i < n - 1; i++) {
+		if (a[i] != 1) {
+			cout << a[i] << " ";
+		}
+	}
+	
+	cout << endl;
+}
+
+int main(int argc, const char * argv[]) {
+
+	if (argc != 2) {
+		printf("The argument is wrong! Execute your program with a size n\n");
+		return 1;
+	}
+
+	int n = atoi(argv[1]);
+
+	// Create Array 1..N
+	int * a = createArray(n);
+	int * b = a;
+	// 
+	//printPrimes(a, n);
+
+	// Begin timing sequential Sieves of Eratosthenes
+	clock_t start, end;
+	int diff;
+	start = clock();
+
+	seqSOE(b, n);
+
+	end = clock();
+	diff = (end - start) * 1000 / CLOCKS_PER_SEC;
+	printf("Time taken to run the sequential algorithm: %d msec\n", diff);
+
+	//printPrimes(b, n);
+
+	// CUDA Memory Allocation
+	int * d_a;
+	cudaMalloc(&d_a, n * sizeof(int));
+	cudaMemcpy(d_a, a, n * sizeof(int), cudaMemcpyHostToDevice);
+
+	// Begin timing parallel Sieves of Eratosthenes
+	start = clock();
+
+	parSOE << <blocks, threads >> > (d_a, n);
+
+	end = clock();
+	diff = (end - start) * 1000 / CLOCKS_PER_SEC;
+	printf("Time taken to run the parallel algorithm: %d msec\n", diff);
+
+	cudaMemcpy(a, d_a, n * sizeof(int), cudaMemcpyDeviceToHost);
+	cudaFree(d_a);
+
+	//printPrimes(a, n);
+
+	free(a);
+
+
+	return 0;
+}
