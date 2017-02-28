@@ -8,21 +8,28 @@
 
 using namespace std;
 
-#define blocks 32;
-#define threads 1024;
+//#define blocks 32;
+//#define threads 1024;
 
 // Parallel version of the Sieve of Eratosthenes
 // O(sqrt(n)loglog(n))
 __global__ void parSOE(int * a, int n) {
 	int index = blockIdx.x * blockDim.x + threadIdx.x;
-
+	
 	if (threadIdx.x == 0 && threadIdx.y == 0) {
 		a[0] = 1;
 		a[1] = 1;
+		a[10] = 1;
 	}
 
-	if (index * index <= n && a[index] != 1 && index > 1) {
-		for (int i = index * index; i < n+1; i += index) {
+	if (index * index <= n+1 && a[index] != 1 && index > 1) {
+		for (int i = index * index; i <= n+1; i += index) {
+			/*
+			if (i == n) {
+				a[0] = 3;
+			}
+
+			*/
 			a[i] = 1;
 		}
 	}
@@ -41,6 +48,21 @@ void seqSOE(int * a, int n) {
 		}
 	}
 }
+
+// Compares the parallel implementation to the sequential implementation
+// to check for correctness
+void validate(int * a, int * b, int n) {
+	int count = 0;
+	for (int i = 0; i <= n; i++) {
+		if (a[i] != b[i]) {
+			count++;
+		}
+	}
+
+	cout << "Correct: " << (n + 1) - count << endl;
+	cout << "Total: " << n/ + 1 << endl;
+}
+
 // Creates the prime testing array from 0 to N
 int * createArray(int n) {
 	int * a = (int*)malloc((n+1) * sizeof(int));
@@ -54,7 +76,7 @@ int * createArray(int n) {
 // Checks to see if value is 1, which indicates not prime
 void printPrimes(int * a, int n) {
 	
-	for (int i = 0; i < n - 1; i++) {
+	for (int i = 0; i <= n; i++) {
 		if (a[i] != 1) {
 			cout << a[i] << " ";
 		}
@@ -74,7 +96,7 @@ int main(int argc, const char * argv[]) {
 
 	// Create Array 1..N
 	int * a = createArray(n);
-	int * b = a;
+	int * b = createArray(n);
 	// 
 	//printPrimes(a, n);
 
@@ -93,24 +115,35 @@ int main(int argc, const char * argv[]) {
 
 	// CUDA Memory Allocation
 	int * d_a;
-	cudaMalloc(&d_a, n * sizeof(int));
-	cudaMemcpy(d_a, a, n * sizeof(int), cudaMemcpyHostToDevice);
+	cudaMalloc(&d_a, (n + 1) * sizeof(int));
+	cudaMemcpy(d_a, a, (n+1) * sizeof(int), cudaMemcpyHostToDevice);
 
 	// Begin timing parallel Sieves of Eratosthenes
 	start = clock();
 
+	int blocks = 32;
+	int threads = 1024;
+	//validate(a, b, n);
 	parSOE << <blocks, threads >> > (d_a, n);
 
 	end = clock();
 	diff = (end - start) * 1000 / CLOCKS_PER_SEC;
 	printf("Time taken to run the parallel algorithm: %d msec\n", diff);
 
-	cudaMemcpy(a, d_a, n * sizeof(int), cudaMemcpyDeviceToHost);
-	cudaFree(d_a);
+	//printPrimes(a, n);
+
+	cudaMemcpy(a, d_a, (n+1) * sizeof(int), cudaMemcpyDeviceToHost);
 
 	//printPrimes(a, n);
 
+	validate(a, b, n);
+
+	cudaFree(d_a);
+
+	
+
 	free(a);
+	free(b);
 
 
 	return 0;
