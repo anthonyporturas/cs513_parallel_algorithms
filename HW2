@@ -2,34 +2,49 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cmath>
-#include "cuda_runtime.h"
 #include <cstdlib>
 #include <time.h>
+#include "cuda_runtime.h"
 
 using namespace std;
 
-//#define blocks 32;
-//#define threads 1024;
+// Interleaved Parallel Sieve of Eratosthenes
+// O(sqrt(n)loglog(n))???
+// Skips several sqrt(n)
+// Way to improve to allow for more processors to fill in more gaps?
+
+__global__ void parInterweavedSOE(int * a, int n, int sqrt_N) {
+
+	int index = blockIdx.x * blockDim.x + threadIdx.x;
+
+	if (threadIdx.x == 0 && threadIdx.y == 0) {
+		a[0] = 1;
+		a[1] = 1;
+	}
+	if (index * index < n + 1) {
+		for (int i = 2; i * i <= n; i++) {
+			if (a[i] != 1) {
+				for (int j = 2; (index+j)*i < n + 1; j += sqrt_N) {
+					a[(index + j) * i] = 1;
+				}
+			}
+		}
+	}
+}
 
 // Parallel version of the Sieve of Eratosthenes
-// O(sqrt(n)loglog(n))
+// Naive Implementation
+
 __global__ void parSOE(int * a, int n) {
 	int index = blockIdx.x * blockDim.x + threadIdx.x;
 	
 	if (threadIdx.x == 0 && threadIdx.y == 0) {
 		a[0] = 1;
 		a[1] = 1;
-		a[10] = 1;
 	}
 
 	if (index * index <= n+1 && a[index] != 1 && index > 1) {
 		for (int i = index * index; i <= n+1; i += index) {
-			/*
-			if (i == n) {
-				a[0] = 3;
-			}
-
-			*/
 			a[i] = 1;
 		}
 	}
@@ -60,7 +75,7 @@ void validate(int * a, int * b, int n) {
 	}
 
 	cout << "Correct: " << (n + 1) - count << endl;
-	cout << "Total: " << n/ + 1 << endl;
+	cout << "Total: " << n + 1 << endl;
 }
 
 // Creates the prime testing array from 0 to N
@@ -93,54 +108,58 @@ int main(int argc, const char * argv[]) {
 	}
 
 	int n = atoi(argv[1]);
-
-	// Create Array 1..N
+	int sqrt_N = int(ceil(sqrt(n)));
+	int threads = 1024;
+	int blocks = 32;
+	clock_t start1, start2, end1, end2;
+	int diff, diff2;
+	
 	int * a = createArray(n);
 	int * b = createArray(n);
-	// 
-	//printPrimes(a, n);
-
-	// Begin timing sequential Sieves of Eratosthenes
-	clock_t start, end;
-	int diff;
-	start = clock();
-
-	seqSOE(b, n);
-
-	end = clock();
-	diff = (end - start) * 1000 / CLOCKS_PER_SEC;
-	printf("Time taken to run the sequential algorithm: %d msec\n", diff);
-
-	//printPrimes(b, n);
-
-	// CUDA Memory Allocation
 	int * d_a;
 	cudaMalloc(&d_a, (n + 1) * sizeof(int));
 	cudaMemcpy(d_a, a, (n+1) * sizeof(int), cudaMemcpyHostToDevice);
+	
+	
+	//printPrimes(a, n);
 
-	// Begin timing parallel Sieves of Eratosthenes
-	start = clock();
+	start1 = clock();
 
-	int blocks = 32;
-	int threads = 1024;
+	seqSOE(b, n);
+
+	end1 = clock();
+	diff = (end1 - start1) * 1000 / CLOCKS_PER_SEC;
+	printf("-----------------------------------\n");
+	printf("Time taken to run the sequential algorithm: %d ms\n", diff);
+
+	printPrimes(b, n);
+
 	//validate(a, b, n);
-	parSOE << <blocks, threads >> > (d_a, n);
 
-	end = clock();
-	diff = (end - start) * 1000 / CLOCKS_PER_SEC;
-	printf("Time taken to run the parallel algorithm: %d msec\n", diff);
+	start1 = clock();
+
+	// parSOE << <blocks, threads >> > (d_a, n);
+	parInterweavedSOE << <blocks, threads >> > (d_a, n, sqrt_N);
+	cudaDeviceSynchronize();
+	
+	end1 = clock();
+	diff = (end1 - start1) * 1000 / CLOCKS_PER_SEC;
+	printf("-----------------------------------\n");
+	printf("Time taken to run the parallel algorithm: %d ms\n", diff);
 
 	//printPrimes(a, n);
-
-	cudaMemcpy(a, d_a, (n+1) * sizeof(int), cudaMemcpyDeviceToHost);
-
-	//printPrimes(a, n);
+	start2 = clock();
+	cudaMemcpy(a, d_a, (n + 1) * sizeof(int), cudaMemcpyDeviceToHost);
+	end2 = clock();
+	diff2 = (end2 - start2) * 1000 / CLOCKS_PER_SEC;
+	printf("Time taken to copy memory from GPU onto CPU: %d ms\n", diff2);
+	printf("Total: %d ms\n", diff + diff2);
+	printf("-----------------------------------\n");
+	printPrimes(a, n);
 
 	validate(a, b, n);
 
 	cudaFree(d_a);
-
-	
 
 	free(a);
 	free(b);
