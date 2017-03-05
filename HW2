@@ -6,32 +6,39 @@
 #include <time.h>
 #include "cuda_runtime.h"
 
+//
 // Interleaved Parallel Sieve of Eratosthenes
-// O(sqrt(n)loglog(n))???
-// Skips several sqrt(n)
-// Way to improve to allow for more processors to fill in more gaps?
-
+// O(sqrt(n)loglog(n))
+// Each skip is multiplied by a factor of sqrt(n). This reduces the running time of each processor
+// by a factor of sqrt(n). The rest of the of the sqrt(n) processors fill in the gaps in parallel.
+// This effectively reduces the total running time by a factor of sqrt(n).
+// 
 __global__ void parInterweavedSOE(int * a, int n, int sqrt_N) {
 
 	int index = blockIdx.x * blockDim.x + threadIdx.x;
-
+	
 	if (threadIdx.x == 0 && threadIdx.y == 0) {
 		a[0] = 1;
 		a[1] = 1;
 	}
-	if (index * index < n + 1) {
-		for (int i = 2; i * i <= n; i++) {
+	if (index * index <= n + 1) {
+		for (int i = 2; i * i <= n+1; i++) {
 			if (a[i] != 1) {
 				for (int j = 2; (index + j)*i < n + 1; j += sqrt_N) {
-					a[(index + j) * i] = 1;
+					if (index + j >= i) {
+						a[(index + j) * i] = 1;
+					}
 				}
+				__syncthreads();
 			}
 		}
 	}
 }
 
-// Parallel version of the Sieve of Eratosthenes
-// Naive Implementation
+//
+// Naive Implementation of Parallel version of the Sieve of Eratosthenes
+// Not interleaved, lots of overlapping work done. Inefficient
+//
 
 __global__ void parSOE(int * a, int n) {
 	int index = blockIdx.x * blockDim.x + threadIdx.x;
@@ -48,22 +55,27 @@ __global__ void parSOE(int * a, int n) {
 	}
 }
 
-
+//
 // Sequential version of the Sieve of Eratosthenes
 // O(nloglog(n))
+// This was used as the base line for improvement and is used as creating the a workable
+// and correct array for comparison.
+//
 void seqSOE(int * a, int n) {
 	a[0] = 1;
-	for (int i = 2; i * i <= n; i++) {
+	for (int i = 2; i * i <= n+1; i++) {
 		if (a[i] != 1) {
-			for (int j = i * 2; j <= n; j += i) {
+			for (int j = i * i; j <= n+1; j += i) {
 				a[j] = 1;
 			}
 		}
 	}
 }
 
-// Compares the parallel implementation to the sequential implementation
+//
+// Used to compare the parallel implementation to the sequential implementation
 // to check for correctness
+//
 void validate(int * a, int * b, int n) {
 	int count = 0;
 	for (int i = 0; i <= n; i++) {
@@ -76,7 +88,11 @@ void validate(int * a, int * b, int n) {
 	std::cout << "Total: " << n + 1 << std::endl;
 }
 
-// Creates the prime testing array from 0 to N
+//
+// Creates the prime array from 0 to N
+// We decided to use the indices to indicate the corresponding number
+// E.g. a[0] = 0, a[1] = 1, a[2] = 2, ..., a[n] = n
+//
 int * createArray(int n) {
 	int * a = (int*)malloc((n + 1) * sizeof(int));
 	for (int i = 0; i <= n; i++) {
@@ -85,8 +101,10 @@ int * createArray(int n) {
 	return a;
 }
 
-// Prints the prime numbers from the input array
-// Checks to see if value is 1, which indicates not prime
+//
+// Prints the prime numbers in the given array
+// Checks to see if the value is 1, which indicates it is not a prime number
+//
 void printPrimes(int * a, int n) {
 
 	for (int i = 0; i <= n; i++) {
@@ -98,6 +116,9 @@ void printPrimes(int * a, int n) {
 	std::cout << std::endl;
 }
 
+//
+// Run with a valid integer between 0 and 500 million
+//
 int main(int argc, const char * argv[]) {
 
 	if (argc != 2) {
@@ -107,8 +128,8 @@ int main(int argc, const char * argv[]) {
 
 	int n = atoi(argv[1]);
 	int sqrt_N = int(ceil(sqrt(n)));
-	int threads = 1024;
-	int blocks = 32;
+	int threads = 1024; // Standard number of threads
+	int blocks = 32; // Magic value that results in best running speeds and larger acceptable inputs n
 	clock_t start1, start2, end1, end2;
 	int diff, diff2;
 
@@ -116,7 +137,7 @@ int main(int argc, const char * argv[]) {
 	int * b = createArray(n);
 	int * d_a;
 	cudaMalloc(&d_a, (n + 1) * sizeof(int));
-	cudaMemcpy(d_a, a, (n + 1) * sizeof(int), cudaMemcpyHostToDevice);
+	
 
 
 	//printPrimes(a, n);
@@ -135,8 +156,8 @@ int main(int argc, const char * argv[]) {
 	//validate(a, b, n);
 
 	start1 = clock();
-
-	// parSOE << <blocks, threads >> > (d_a, n);
+	cudaMemcpy(d_a, a, (n + 1) * sizeof(int), cudaMemcpyHostToDevice);
+	//parSOE << <blocks, threads >> > (d_a, n);
 	parInterweavedSOE << <blocks, threads >> > (d_a, n, sqrt_N);
 	cudaDeviceSynchronize();
 
