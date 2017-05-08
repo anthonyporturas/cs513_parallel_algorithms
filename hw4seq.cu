@@ -6,7 +6,119 @@
 #define MOD 65536
 #define NELE(x) (sizeof(x) / sizeof(x[0]))
 
+__device__ void seqMult2(int * output, int tempRow, int commonDim, int tempCol, int *mat1, int *mat2) {
 
+	for (int i = 0; i < tempRow * tempCol; i++) {
+		int total = 0;
+		int j = i % tempCol;
+
+		for (int k = 0; k < commonDim; k++) {
+			total += mat1[k + (i / tempCol)*commonDim] * mat2[(k*tempCol + j)];
+		}
+
+		output[i] = total;
+
+	}
+
+
+}
+__global__ void parMat2(int * dimVect, int numDim, int ** matList, int ** intermediate, int levels) {
+	/*
+	for (int i = 0; i < numDim - 2; i++) {
+	intermediate[i][0] = 1;
+	intermediate[i][1] = 2;
+	}
+	*/
+	int index = blockIdx.x * blockDim.x + threadIdx.x;
+
+	int commonDim = dimVect[1];
+	int tempRow = dimVect[0];
+	int tempCol = dimVect[2];
+	int *mat1 = matList[0];
+	int *mat2 = matList[1];
+	int *output = new int[tempRow*tempCol];
+	seqMult2(output, tempRow, commonDim, tempCol, mat1, mat2);
+	int threadMax = ((numDim - 2) / 2) + ((numDim - 2) % 2);
+	threadMax = 100;
+	/*
+	if (index > threadMax) {
+	intermediate[0][index % (tempRow*tempCol)] = output[index % (tempRow*tempCol)];
+	}
+	*/
+	intermediate[0][0] = output[0];
+	intermediate[0][1] = output[1];
+	intermediate[0][2] = output[2];
+	intermediate[0][3] = output[3];
+
+}
+__global__ void parMat(int * dimVect, int numDim, int ** matList, int ** intermediate, int levels) {
+	int index = blockIdx.x * blockDim.x + threadIdx.x;
+	int threadMax = ((numDim - 2) / 2) + ((numDim - 2) % 2);
+	if (index == 0) {
+		return;
+	}
+	int tempRow, tempCol, commonDim;
+	for (int i = 0; i < levels; i++) {
+		if (index <= threadMax) {
+
+			if (i == 1) {
+				tempRow = dimVect[index * 2 - 2];
+				tempCol = dimVect[index * 2];
+				commonDim = dimVect[index * 2 - 1];
+				int *mat1 = matList[index * 2 - 2];
+				int *mat2 = matList[index * 2 - 1];
+				//int *output = (int *)malloc(tempRow * tempCol* sizeof(int ));
+				int *output = new int[tempRow*tempCol];
+
+				seqMult2(output, tempRow, commonDim, tempCol, mat1, mat2);
+				intermediate[index] = output;
+			}
+			else {
+				commonDim = tempCol;
+				tempCol = dimVect[index * 2 + (i * 2) - 1];
+				int *mat1 = intermediate[index];
+				int *mat2 = intermediate[index + 1];
+				//int *output = (int *)malloc(tempRow * tempCol* sizeof(int ));
+				int *output = new int[tempRow*tempCol];
+				__syncthreads();
+				seqMult2(output, tempRow, commonDim, tempCol, mat1, mat2);
+				intermediate[index] = output;
+			}
+			__syncthreads();
+		}
+
+		threadMax = ((threadMax - 2) / 2) + ((threadMax - 2) % 2);
+	}
+	__syncthreads();
+	if (index == 1) {
+		intermediate[0] = intermediate[1];
+	}
+
+}
+
+
+__global__ void parMult(int** output, int **mat1, int **mat2, int row, int com, int col) {
+	int index = blockIdx.x * blockDim.x + threadIdx.x;
+
+	int i, j;
+
+	output = (int **)malloc(row * sizeof(int *));
+	for (i = 0; i < row; i++) {
+		output[i] = (int *)malloc(col * sizeof(int));
+	}
+
+	i = index / col;
+	j = (index % col) - 1;
+	int total = 0;
+	for (int multNum = 0; multNum < com; multNum++) {
+		total += mat1[i][multNum] * mat2[multNum][j];
+	}
+
+	output[i][j] = total;
+
+
+
+}
 // double * createMatrix(int row, int col){
 //     double * a = (double *)malloc(row*col * sizeof(double));
 //     for (int i = 0; i < row * col; i++) {
