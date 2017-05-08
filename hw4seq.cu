@@ -110,9 +110,10 @@ __global__ void parMat2(int * dimVect, int numDim, int ** matList, int ** interm
 						lastMax = threadMax;
 					}
 					__syncthreads();
+					threadMax = ((threadMax) / 2) + ((threadMax) % 2);
 				}
 
-				threadMax = ((threadMax) / 2) + ((threadMax) % 2);
+				
 			}
 		}
 	
@@ -320,7 +321,7 @@ int main(int argc, const char * argv[]) {
 	cudaMalloc((void **)&d_dimVect, (vectSize-1) * sizeof(int));
 	cudaMemcpy(d_dimVect, dimVect, (vectSize - 1) * sizeof(int), cudaMemcpyHostToDevice);
 
-	int ** matList = (int **)malloc((vectSize-2) * sizeof(int *));
+	int ** matList = (int **)malloc((vectSize-1) * sizeof(int *));
 	for (i = 0; i < (vectSize-2); i++) {
 		cudaMalloc((void **)&matList[i], dimVect[i] * dimVect[i + 1] * sizeof(int));
 		cudaMemcpy(matList[i], b[i], dimVect[i] * dimVect[i + 1] * sizeof(int), cudaMemcpyHostToDevice);
@@ -331,18 +332,18 @@ int main(int argc, const char * argv[]) {
 	cudaMemcpy(d_matList, matList, (vectSize - 2) * sizeof(int *), cudaMemcpyHostToDevice);
 
 
-	int ** interMat = (int **)malloc(ceil((vectSize - 2) / 2) + 1 * sizeof(int *));
+	int ** interMat = (int **)malloc((ceil((vectSize - 1) / 2) + 1 )* sizeof(int *));
 	int * currentMat = (int *)calloc(100, sizeof(int));
-	for (i = 0; i < ceil((vectSize-2)/2)+1; i++) {
+	for (i = 0; i < ceil((vectSize-1)/2)+1; i++) {
 		cudaMalloc((void **)&interMat[i], 100 * sizeof(int));
 		cudaMemcpy(interMat[i], currentMat, 100 * sizeof(int), cudaMemcpyHostToDevice);
 	}
 
 	int ** d_interMat;
-	cudaMalloc(&d_interMat, (vectSize - 2) * sizeof(int *));
-	cudaMemcpy(d_interMat, interMat, (vectSize - 2) * sizeof(int *), cudaMemcpyHostToDevice);
+	cudaMalloc(&d_interMat, (ceil((vectSize - 1) / 2) + 1) * sizeof(int *));
+	cudaMemcpy(d_interMat, interMat, (ceil((vectSize - 1) / 2) + 1) * sizeof(int *), cudaMemcpyHostToDevice);
 
-	int levels = log(vectSize - 2) / log(2);
+	int levels = log(vectSize - 1) / log(2);
 	parMat2 << <blocks, threads >> > (d_dimVect, vectSize, d_matList, d_interMat, levels);
 
 	/*
@@ -361,7 +362,7 @@ int main(int argc, const char * argv[]) {
 	
 	cudaMemcpy(&res[0][0], interMat[1], dimVect[0] * dimVect[vectSize-2] *sizeof(int), cudaMemcpyDeviceToHost);
 
-	
+	printf("Parallel Result:\n");
 	for (int j = 0; j < dimVect[0] * dimVect[vectSize - 2]; j++) {
 		printf("%d ", res[0][j]);
 	}
