@@ -31,6 +31,7 @@ __global__ void parMat2(int * dimVect, int numDim, int ** matList, int ** interm
 		intermediate[i][1] = 2;
 	}
 	*/
+	/*
 	int index = blockIdx.x * blockDim.x + threadIdx.x;
 
 	
@@ -48,7 +49,72 @@ __global__ void parMat2(int * dimVect, int numDim, int ** matList, int ** interm
 			intermediate[0][index % (tempRow*tempCol)] = output[index % (tempRow*tempCol)];
 		}
 		
-		
+		*/
+		int index = blockIdx.x * blockDim.x + threadIdx.x;
+		int threadMax = ((numDim - 2) / 2) + ((numDim - 2) % 2);
+		int lastMax = threadMax;
+		if (!(index == 0)) {
+
+
+			int tempRow, tempCol, commonDim;
+			for (int i = 0; i < levels; i++) {
+				if (index <= threadMax) {
+
+					if (i == 0) {
+
+						if (index * 2 == numDim - 1) {
+							int *output = matList[index * 2 - 2];
+							for (int j = 0; j < tempRow * tempCol; j++) {
+								intermediate[index][j] = output[j];
+							}
+						}
+						else {
+							tempRow = dimVect[index * 2 - 2];
+							tempCol = dimVect[index * 2];
+							commonDim = dimVect[index * 2 - 1];
+							int *mat1 = matList[index * 2 - 2];
+							int *mat2 = matList[index * 2 - 1];
+							//int *output = (int *)malloc(tempRow * tempCol* sizeof(int ));
+							int *output = new int[tempRow*tempCol];
+
+							seqMult2(output, tempRow, commonDim, tempCol, mat1, mat2);
+
+							for (int j = 0; j < tempRow * tempCol; j++) {
+								intermediate[index][j] = output[j];
+							}
+
+						}
+
+
+					}
+					else {
+						if (index == threadMax && lastMax % 2 == 1) {
+							int *output = intermediate[index * 2 - 1];
+							for (int j = 0; j < tempRow * tempCol; j++) {
+								intermediate[index][j] = output[j];
+							}
+						}
+						else {
+							commonDim = tempCol;
+							tempCol = dimVect[index * 2 + (i * 2) - 1];
+							int *mat1 = intermediate[index*2 - 1];
+							int *mat2 = intermediate[index*2];
+							//int *output = (int *)malloc(tempRow * tempCol* sizeof(int ));
+							int *output = new int[tempRow*tempCol];
+							__syncthreads();
+							seqMult2(output, tempRow, commonDim, tempCol, mat1, mat2);
+							for (int j = 0; j < tempRow * tempCol; j++) {
+								intermediate[index][j] = output[j];
+							}
+						}
+						lastMax = threadMax;
+					}
+					__syncthreads();
+				}
+
+				threadMax = ((threadMax) / 2) + ((threadMax) % 2);
+			}
+		}
 	
 
 }
@@ -72,7 +138,10 @@ __global__ void parMat(int * dimVect, int numDim, int ** matList, int ** interme
 				int *output = new int[tempRow*tempCol];
 				
 				seqMult2(output, tempRow, commonDim, tempCol, mat1, mat2);
-				intermediate[index] = output;
+				
+					intermediate[index] = output;
+				
+				
 			}
 			else {
 				commonDim = tempCol;
@@ -91,9 +160,7 @@ __global__ void parMat(int * dimVect, int numDim, int ** matList, int ** interme
 		threadMax = ((threadMax - 2) / 2) + ((threadMax - 2) % 2);
 	}
 	__syncthreads();
-	if (index == 1) {
-		intermediate[0] = intermediate[1];
-	}
+	
 
 }
 
@@ -126,7 +193,7 @@ __global__ void parMult(int** output, int **mat1, int **mat2, int row, int com, 
 // Right now for testing, only fills in incremented values
 // Needs to be int values
 int * randMat(int row, int col) {
-	int i, j;
+	int i;
 	int count;
 	int *arr = (int *)malloc(row * col* sizeof(int ));
 
@@ -168,7 +235,7 @@ int * seqMult(int * dimVect, int dimNum, int **b) {
 
 		for (i = 0; i < tempRow * tempCol; i++) {
 				int total = 0;
-				int j = i % tempCol;
+				j = i % tempCol;
 				
 				for (int k = 0; k < commonDim; k++) {
 					total += mat1[k+(i/ tempCol)*commonDim] * mat2[(k*tempCol + j)];
@@ -206,31 +273,32 @@ __global__ void doSmth(int*** a) {
 int main(int argc, const char * argv[]) {
 
 	// Check to see if there is at least one matrix
+	
 	if (argc < 3) {
 		printf("The argument is wrong! Execute your program with a vector with at least two integers.\n");
 		return 1;
 	}
-
-	int i, j, k;
+	int vectSize = argc;
+	int i, k;
 	int threads = 1024; // Standard number of threads
 	int blocks = 32; // Magic value that results in best running speeds and larger acceptable inputs n
 
 					 // Arary holding all the dimensions
-	int * dimVect = (int *)malloc((argc - 1) * sizeof(int));
-	for (i = 1; i < argc; i++) {
+	int * dimVect = (int *)malloc((vectSize - 1) * sizeof(int));
+	for (i = 1; i < vectSize; i++) {
 		dimVect[i - 1] = atoi(argv[i]);
 	}
 
 	int *a; // Temporary 2D array to hold current matrix
-	int **b = (int **)malloc((argc - 1) * sizeof(int*)); // Array holding all matrices
-	for (i = 0; i < argc - 2; i++) {
+	int **b = (int **)malloc((vectSize - 1) * sizeof(int*)); // Array holding all matrices
+	for (i = 0; i < vectSize - 2; i++) {
 		a = randMat(dimVect[i], dimVect[i + 1]);
 		b[i] = a;
 	}
 
 
 	// Print out all matrices
-	for (k = 0; k < argc - 2; k++) {
+	for (k = 0; k < vectSize - 2; k++) {
 		printf("Mat %d: ", k + 1);
 		a = b[k];
 		int tempRow = dimVect[k];
@@ -240,46 +308,46 @@ int main(int argc, const char * argv[]) {
 		printf("\n");
 	}
 
-	int *result = seqMult(dimVect, argc, b);
+	int *result = seqMult(dimVect, vectSize, b);
 	printf("Sequential Result:\n");
-	for (int i = 0; i < dimVect[0] * dimVect[argc - 2]; i++) {
+	for (int i = 0; i < dimVect[0] * dimVect[vectSize - 2]; i++) {
 		printf("%d ", result[i]);
 	}
 	printf("\n");
 	printf("\n");
 
 	int * d_dimVect;
-	cudaMalloc((void **)&d_dimVect, (argc-1) * sizeof(int));
-	cudaMemcpy(d_dimVect, dimVect, (argc - 1) * sizeof(int), cudaMemcpyHostToDevice);
+	cudaMalloc((void **)&d_dimVect, (vectSize-1) * sizeof(int));
+	cudaMemcpy(d_dimVect, dimVect, (vectSize - 1) * sizeof(int), cudaMemcpyHostToDevice);
 
-	int ** matList = (int **)malloc((argc-2) * sizeof(int *));
-	for (i = 0; i < (argc-2); i++) {
+	int ** matList = (int **)malloc((vectSize-2) * sizeof(int *));
+	for (i = 0; i < (vectSize-2); i++) {
 		cudaMalloc((void **)&matList[i], dimVect[i] * dimVect[i + 1] * sizeof(int));
 		cudaMemcpy(matList[i], b[i], dimVect[i] * dimVect[i + 1] * sizeof(int), cudaMemcpyHostToDevice);
 	}
 
 	int ** d_matList;
-	cudaMalloc(&d_matList, (argc - 2) * sizeof(int *));
-	cudaMemcpy(d_matList, matList, (argc - 2) * sizeof(int *), cudaMemcpyHostToDevice);
+	cudaMalloc(&d_matList, (vectSize - 2) * sizeof(int *));
+	cudaMemcpy(d_matList, matList, (vectSize - 2) * sizeof(int *), cudaMemcpyHostToDevice);
 
 
-	int ** interMat = (int **)malloc(ceil((argc - 2) / 2) + 1 * sizeof(int *));
+	int ** interMat = (int **)malloc(ceil((vectSize - 2) / 2) + 1 * sizeof(int *));
 	int * currentMat = (int *)calloc(100, sizeof(int));
-	for (i = 0; i < ceil((argc-2)/2)+1; i++) {
+	for (i = 0; i < ceil((vectSize-2)/2)+1; i++) {
 		cudaMalloc((void **)&interMat[i], 100 * sizeof(int));
 		cudaMemcpy(interMat[i], currentMat, 100 * sizeof(int), cudaMemcpyHostToDevice);
 	}
 
 	int ** d_interMat;
-	cudaMalloc(&d_interMat, (argc - 2) * sizeof(int *));
-	cudaMemcpy(d_interMat, interMat, (argc - 2) * sizeof(int *), cudaMemcpyHostToDevice);
+	cudaMalloc(&d_interMat, (vectSize - 2) * sizeof(int *));
+	cudaMemcpy(d_interMat, interMat, (vectSize - 2) * sizeof(int *), cudaMemcpyHostToDevice);
 
-	int levels = log(argc - 2) / log(2);
-	parMat2 << <blocks, threads >> > (d_dimVect, argc, d_matList, d_interMat, levels);
+	int levels = log(vectSize - 2) / log(2);
+	parMat2 << <blocks, threads >> > (d_dimVect, vectSize, d_matList, d_interMat, levels);
 
 	/*
 	int *res = (int *)malloc(100 * 100 * sizeof(int));
-	for (i = 0; i < ceil((argc - 2) / 2) + 1; i++) {
+	for (i = 0; i < ceil((vectSize - 2) / 2) + 1; i++) {
 		printf("1:\n");
 		cudaMemcpy(res, d_interMat[i], 100 * 100 * sizeof(int), cudaMemcpyDeviceToHost);
 		printf("2:\n");
@@ -287,12 +355,26 @@ int main(int argc, const char * argv[]) {
 	}
 	*/
 
-	int res[2][4];
-	for (int i = 0; i<4; i++)
-			cudaMemcpy(&res[i][0], interMat[i], 16*sizeof(int), cudaMemcpyDeviceToHost);
+	int res[1][dimVect[0] * dimVect[vectSize-2]];
+	
+	
+	
+	cudaMemcpy(&res[0][0], interMat[1], dimVect[0] * dimVect[vectSize-2] *sizeof(int), cudaMemcpyDeviceToHost);
 
-	for (int i = 0; i<2; i++)
-		for (int j = 0; j<4; j++)
-				printf("[%d][%d]=%d\n", i, j, res[i][j]);
+	
+	for (int j = 0; j < dimVect[0] * dimVect[vectSize - 2]; j++) {
+		printf("%d ", res[0][j]);
+	}
+				
+	/*
+	//int res2[dimVect[0] * dimVect[vectSize - 2]];
+	int * res2 = (int *)malloc(dimVect[0] * dimVect[vectSize - 2] * sizeof(int));
+	cudaMemcpy(res, interMat[0], dimVect[0] * dimVect[vectSize - 2] * sizeof(int), cudaMemcpyDeviceToHost);
+
+	for (int i = 0; i < dimVect[0] * dimVect[vectSize - 2]; i++) {
+		printf("%d ", res2[i]);
+	}
+	*/
+	printf("\n");
 	return 0;
 }
